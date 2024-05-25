@@ -3,11 +3,10 @@ import os
 import random
 from collections import deque
 
+import cv2
 import gymnasium as gym
 import numpy as np
 import tensorflow as tf
-import cv2
-
 from utils import ExperimentParams, SimpleNet
 
 
@@ -101,11 +100,6 @@ class Agent:
 
         return loss.numpy()
 
-    def preprocess_state(self, state):
-        state = cv2.cvtColor(state, cv2.COLOR_RGB2GRAY)
-        # state = cv2.resize(state, (84, 84), interpolation=cv2.INTER_AREA)
-        return state / 255.0
-
     def learning_transfer(self) -> None:
         """
         Transfer the learning from the main model to the target model using soft update.
@@ -138,7 +132,7 @@ class Agent:
         eval_memory = []
         for _ in range(episodes):
             state, _ = env.reset()
-            state = state_to_tensor(state)
+            state = preprocess_state(state)
 
             episode_reward = 0
             for time_step in range(1, experiment_params.max_steps_per_episode):
@@ -147,7 +141,7 @@ class Agent:
 
                 # Apply the sampled action in our environment
                 next_state, reward, done, _, _ = env.step(action)
-                next_state = state_to_tensor(next_state)
+                next_state = preprocess_state(next_state)
 
                 eval_memory.append([state, action, reward, next_state, done])
                 episode_reward += reward
@@ -164,7 +158,7 @@ class Agent:
 
 def process_samples(samples):
     """Process a batch of samples and concatenate the state, action, reward, next state,
-    and not done tensors.
+    and not done tensors. State batch is preprocessed using the preprocess_state function.
 
     Args:
         samples (list): A list of tuples containing the state, action, reward, next state, and not
@@ -260,10 +254,13 @@ def update_cumulative_rewards(
     return cum_train_reward, cum_eval_reward
 
 
-def state_to_tensor(state):
+def preprocess_state(state):
+    state = cv2.cvtColor(state, cv2.COLOR_RGB2GRAY)
+    # state = cv2.resize(state, (84, 84), interpolation=cv2.INTER_AREA)
+    state = np.expand_dims(state, axis=-1)
     state = tf.convert_to_tensor(state, dtype=tf.float32)
     state = tf.expand_dims(state, 0)
-    return state
+    return state / 255.0
 
 
 # %%
@@ -292,7 +289,6 @@ experiment_params = ExperimentParams(
     learning_rate=0.05,
 )
 
-# %%
 observation_dim = env.observation_space.shape
 input_dim = observation_dim[0] * observation_dim[1] * observation_dim[2]
 hidden_units = input_dim // 2
@@ -311,7 +307,7 @@ historic_reward = []
 while True:  # Run until solved
 
     state, info = env.reset()
-    state = state_to_tensor(state)
+    state = preprocess_state(state)
 
     episode_reward = 0
     for time_step in range(1, experiment_params.max_steps_per_episode):
@@ -321,7 +317,7 @@ while True:  # Run until solved
 
         # Apply the sampled action in our environment
         next_state, step_reward, done, _, info = env.step(action)
-        next_state = state_to_tensor(next_state)
+        next_state = preprocess_state(next_state)
 
         memory.append([state, action, step_reward, next_state, done])
         episode_reward += step_reward
@@ -379,7 +375,7 @@ for env_i in range(episodes):
         print("Episode: {}, TimeStep: {}".format(env_i, time_step))
         env.render()  # Show the attempts of the agent in a pop up window.
 
-        state = state_to_tensor(state)
+        state = preprocess_state(state)
 
         action_values = t_model(state, training=False)
         action = tf.argmax(action_values, axis=1).numpy().item()
